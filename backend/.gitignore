@@ -1,2 +1,15 @@
 node_modules/
 .env
+
+# build artifacts — will check later
+dist/
+dist/**
+
+# dev utilities — will check later
+src/test/
+dist/test/
+src/utils/introspect-zeko-graphql.ts
+src/utils/query-doot-transactions.ts
+
+# stale docs — will check later
+SETTLEMENT_STATUS.md

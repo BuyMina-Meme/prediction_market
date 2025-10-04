@@ -34,3 +34,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# contracts-build extras — will check later
+/contracts-build/src/**/*.map
+/contracts-build/src/**/*.d.ts
+/contracts-build/src/Add*.*
+/contracts-build/src/interact.*
+/contracts-build/src/check-fields.*
+/contracts-build/src/manual-test.*
