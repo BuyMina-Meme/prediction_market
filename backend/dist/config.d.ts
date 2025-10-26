@@ -10,6 +10,7 @@ export declare const config: {
     chain: string;
     registryAddress: string;
     dootOracleAddress: string;
+    burnAddress: string;
     deployerPrivateKey: string;
     redis: {
         url: string;
@@ -50,4 +51,8 @@ export declare function getRegistryAddress(): PublicKey;
  * Get Doot oracle address
  */
 export declare function getDootOracleAddress(): PublicKey;
+/**
+ * Get burn address (40% of fees sent here - unrecoverable)
+ */
+export declare function getBurnAddress(): PublicKey;
 //# sourceMappingURL=config.d.ts.map

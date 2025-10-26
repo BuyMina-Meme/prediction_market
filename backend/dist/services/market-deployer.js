@@ -4,7 +4,7 @@
  * Handles programmatic deployment of prediction markets
  */
 import { PrivateKey, PublicKey, Mina, Field, UInt64, fetchAccount, AccountUpdate } from 'o1js';
-import { config, getDeployerKeypair, getRegistryAddress } from '../config.js';
+import { config, getDeployerKeypair, getRegistryAddress, getBurnAddress } from '../config.js';
 import { redis } from './redis-client.js';
 import { updateGlobalMarketsIPFS } from './pinata-client.js';
 // Import compiled contracts from local contracts package
@@ -12,7 +12,7 @@ import { updateGlobalMarketsIPFS } from './pinata-client.js';
 // and backend is executed from repository root structure
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import { PredictionMarket, MarketRegistry } from '../../contracts/build/src/index.js';
+import { PredictionMarket, MarketRegistry } from '../../../contracts/build/src/index.js';
 // Asset names mapping
 const ASSET_NAMES = [
     'MINA', 'BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'AVAX', 'MATIC', 'LINK', 'DOGE'
@@ -42,7 +42,7 @@ async function initNetwork() {
  */
 export async function deployMarket(request) {
     try {
-        console.log(`\n🏗️  Deploying market for ${ASSET_NAMES[request.assetIndex]}...`);
+        console.log(`\n  Deploying market for ${ASSET_NAMES[request.assetIndex]}...`);
         // Initialize network
         await initNetwork();
         // Get deployer keypair
@@ -69,9 +69,9 @@ export async function deployMarket(request) {
         const thresholdField = Field(BigInt(request.priceThreshold));
         const endTime = UInt64.from(request.endTimestamp);
         const creator = PublicKey.fromBase58(request.creator);
-        // Burn address: Use registry for now (TODO: create dedicated burn address)
-        const burnAddress = registryAddress;
-        // Registry receives 40% of fees as treasury
+        // Burn address: Dedicated burn sink (40% of fees sent here - unrecoverable)
+        const burnAddress = getBurnAddress();
+        // Registry receives 40% of fees as platform treasury
         const registryAddressFees = registryAddress;
         // Deploy contract only (without initialize - creator will call that from UI)
         const deployTx = await Mina.transaction(deployer, async () => {
@@ -120,14 +120,14 @@ export async function deployMarket(request) {
             const oldCID = await redis.getGlobalMarketsCID();
             const newCID = await updateGlobalMarketsIPFS(allMarkets, oldCID);
             await redis.setGlobalMarketsCID(newCID);
-            console.log(`   📦 Updated global markets IPFS: ${newCID}`);
+            console.log(`    Updated global markets IPFS: ${newCID}`);
         }
         catch (error) {
-            console.warn(`   ⚠️  IPFS update failed (non-critical):`, error.message);
+            console.warn(`     IPFS update failed (non-critical):`, error.message);
             // Don't fail the entire deployment if IPFS fails
         }
-        console.log(`   ✅ Deployed market #${marketId} at ${marketAddress.toBase58()}`);
-        console.log(`   ⚠️  Market requires initialization by creator (10 MINA deposit)`);
+        console.log(`    Deployed market #${marketId} at ${marketAddress.toBase58()}`);
+        console.log(`     Market requires initialization by creator (10 MINA deposit)`);
         return {
             success: true,
             marketId,
@@ -137,7 +137,7 @@ export async function deployMarket(request) {
         };
     }
     catch (error) {
-        console.error('   ❌ Deployment failed:', error.message);
+        console.error('    Deployment failed:', error.message);
         return {
             success: false,
             error: error.message,

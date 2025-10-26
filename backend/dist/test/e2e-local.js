@@ -165,10 +165,10 @@ async function main() {
     }
     if (!failed)
         throw new Error('YES bettor was able to claim unexpectedly');
-    console.log('✅ Local E2E succeeded');
+    console.log(' Local E2E succeeded');
 }
 main().catch((e) => {
-    console.error('❌ E2E failed:', e);
+    console.error(' E2E failed:', e);
     process.exit(1);
 });
 //# sourceMappingURL=e2e-local.js.map

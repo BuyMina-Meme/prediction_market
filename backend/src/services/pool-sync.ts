@@ -10,7 +10,7 @@ import { config } from '../config.js';
 import { redis } from './redis-client.js';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import { PredictionMarket } from '../../contracts/build/src/index.js';
+import { PredictionMarket } from '../../../contracts/build/src/index.js';
 
 let networkInitialized = false;
 

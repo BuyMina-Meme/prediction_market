@@ -83,7 +83,7 @@ class UpstashRedisService {
     async updateMarketStatus(marketId, status, outcome) {
         const market = await this.getMarket(marketId);
         if (!market) {
-            console.warn(`⚠️  Market ${marketId} not found, cannot update status`);
+            console.warn(`  Market ${marketId} not found, cannot update status`);
             return;
         }
         market.status = status;

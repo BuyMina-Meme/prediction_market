@@ -12,8 +12,8 @@ import { config, getRegistryAddress } from '../config.js';
 import { redis } from './redis-client.js';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import { PredictionMarket, MarketRegistry, MARKET_STATUS } from '../../contracts/build/src/index.js';
-import { INITIAL_POOL_AMOUNT, CREATOR_DEPOSIT } from '../../contracts/build/src/types/index.js';
+import { PredictionMarket, MarketRegistry, MARKET_STATUS } from '../../../contracts/build/src/index.js';
+import { INITIAL_POOL_AMOUNT, CREATOR_DEPOSIT } from '../../../contracts/build/src/types/index.js';
 
 let networkInitialized = false;
 

@@ -17,6 +17,8 @@ export const config = {
     // Contract Addresses
     registryAddress: process.env.REGISTRY_ADDRESS || '',
     dootOracleAddress: process.env.DOOT_ORACLE_ADDRESS || '',
+    // Burn address (40% of fees sent here - unrecoverable)
+    burnAddress: process.env.BURN_ADDRESS || 'B62qiburnzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzmp7r7UN6X',
     // Deployer
     deployerPrivateKey: process.env.DEPLOYER_PRIVATE_KEY || '',
     // Upstash Redis
@@ -70,7 +72,7 @@ export function validateConfig() {
         }
     }
     if (!config.dootOracleAddress && !config.localMode) {
-        console.warn('⚠️  DOOT_ORACLE_ADDRESS not set (optional for testing)');
+        console.warn('  DOOT_ORACLE_ADDRESS not set (optional for testing)');
     }
     // Check Upstash Redis credentials
     if (!config.redis.url || !config.redis.token) {
@@ -103,5 +105,11 @@ export function getDootOracleAddress() {
         throw new Error('DOOT_ORACLE_ADDRESS not configured');
     }
     return PublicKey.fromBase58(config.dootOracleAddress);
+}
+/**
+ * Get burn address (40% of fees sent here - unrecoverable)
+ */
+export function getBurnAddress() {
+    return PublicKey.fromBase58(config.burnAddress);
 }
 //# sourceMappingURL=config.js.map

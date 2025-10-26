@@ -18,9 +18,19 @@ import {
   Alert,
   AlertIcon,
 } from '@chakra-ui/react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { usePredictionMarket } from '../hooks/usePredictionMarket';
+import {
+  calculateBetFees,
+  getPoolRatio,
+  getImbalanceSeverity,
+  getTimeUrgency,
+  getImbalanceWarning,
+  getTimeWarning,
+  formatFeeRate,
+  formatMina,
+} from '../lib/v1-fees';
 
 const ASSETS = ['MINA', 'BTC', 'ETH', 'SOL', 'XRP', 'ADA', 'AVAX', 'MATIC', 'LINK', 'DOGE'];
 
@@ -32,6 +42,7 @@ interface Market {
   assetName: string;
   priceThreshold: string;
   endTimestamp: number;
+  startTimestamp?: number; // V1: For τ normalization
   status: 'PENDING_INIT' | 'ACTIVE' | 'LOCKED' | 'AWAITING' | 'SETTLED';
   yesPool?: string;
   noPool?: string;
@@ -323,6 +334,89 @@ export default function BetTab({ wallet }: BetTabProps) {
                   </HStack>
                 )}
 
+                {/* V1 Fee Preview & Warnings */}
+                {market.status === 'ACTIVE' && market.yesPool && market.noPool && (() => {
+                  const betAmount = parseFloat(betAmounts[market.marketId] || '1');
+                  if (isNaN(betAmount) || betAmount <= 0) return null;
+
+                  const yesPool = parseFloat(market.yesPool) / 1e9;
+                  const noPool = parseFloat(market.noPool) / 1e9;
+                  const now = Date.now();
+                  const remaining = market.endTimestamp - now;
+                  const totalDuration = market.startTimestamp
+                    ? market.endTimestamp - market.startTimestamp
+                    : 7 * 24 * 60 * 60 * 1000; // Default 7 days if not available
+                  const tau = remaining / totalDuration;
+
+                  const fees = calculateBetFees(betAmount, yesPool, noPool, remaining, totalDuration);
+                  const poolRatio = getPoolRatio(yesPool, noPool);
+                  const imbalanceSeverity = getImbalanceSeverity(poolRatio);
+                  const timeUrgency = getTimeUrgency(tau);
+                  const imbalanceWarning = getImbalanceWarning(imbalanceSeverity);
+                  const timeWarning = getTimeWarning(timeUrgency);
+
+                  return (
+                    <Box
+                      bg="rgba(0, 0, 0, 0.3)"
+                      p={3}
+                      borderRadius="md"
+                      border="1px solid rgba(255, 255, 255, 0.1)"
+                    >
+                      <VStack align="stretch" spacing={2}>
+                        <Text fontSize="xs" fontWeight="bold" color="gray.300">
+                          V1 FEE PREVIEW ({formatFeeRate(fees.effectiveRate)} total)
+                        </Text>
+
+                        {/* Fee Breakdown */}
+                        <HStack fontSize="xs" justify="space-between">
+                          <Text color="gray.400">Base fee (0.2%):</Text>
+                          <Text>{formatMina(fees.baseFee)} MINA</Text>
+                        </HStack>
+                        {fees.lateFee > 0 && (
+                          <>
+                            <HStack fontSize="xs" justify="space-between">
+                              <Text color="gray.400">
+                                Late fee (time {formatFeeRate(fees.timeFeeRate)} + imbalance {formatFeeRate(fees.imbalanceFeeRate)}):
+                              </Text>
+                              <Text color="orange.400">{formatMina(fees.lateFee)} MINA</Text>
+                            </HStack>
+                          </>
+                        )}
+                        <HStack fontSize="xs" justify="space-between" fontWeight="bold">
+                          <Text>You receive:</Text>
+                          <Text color="green.400">{formatMina(fees.netReceived)} shares</Text>
+                        </HStack>
+
+                        {/* Warnings */}
+                        {imbalanceWarning && (
+                          <Alert status={imbalanceSeverity === 'extreme' ? 'error' : 'warning'} py={1} fontSize="xs">
+                            <AlertIcon boxSize={3} />
+                            {imbalanceWarning}
+                          </Alert>
+                        )}
+                        {timeWarning && (
+                          <Alert status={timeUrgency === 'extreme' ? 'error' : 'warning'} py={1} fontSize="xs">
+                            <AlertIcon boxSize={3} />
+                            {timeWarning}
+                          </Alert>
+                        )}
+
+                        {/* Pool Ratio Indicator */}
+                        <HStack fontSize="xs" justify="space-between">
+                          <Text color="gray.400">Pool balance:</Text>
+                          <Text color={poolRatio < 0.5 ? 'red.400' : poolRatio < 0.8 ? 'orange.400' : 'green.400'}>
+                            {(poolRatio * 100).toFixed(1)}% ({yesPool.toFixed(1)} / {noPool.toFixed(1)})
+                          </Text>
+                        </HStack>
+
+                        <Text fontSize="xs" color="gray.500" fontStyle="italic">
+                          Fees charged at bet time, distributed 50/50 treasury/burn
+                        </Text>
+                      </VStack>
+                    </Box>
+                  );
+                })()}
+
                 {/* Actions */}
                 {market.status === 'PENDING_INIT' && market.creator === walletAddress ? (
                   <>
@@ -340,7 +434,7 @@ export default function BetTab({ wallet }: BetTabProps) {
                   </>
                 ) : market.status === 'PENDING_INIT' ? (
                   <Text fontSize="sm" color="gray.500" textAlign="center">
-                    Awaiting creator initialization
+                    Awaiting protocol initialization
                   </Text>
                 ) : market.status === 'ACTIVE' ? (
                   <>
@@ -356,7 +450,7 @@ export default function BetTab({ wallet }: BetTabProps) {
                         }
                       />
                       <Text fontSize="xs" color="gray.500">
-                        Minimum: 0.001 MINA (UI enforced, contract allows lower)
+                        V1: Min 1 nanomina, fees 0.2-20.2% (bet-time)
                       </Text>
                     </VStack>
                     <HStack>

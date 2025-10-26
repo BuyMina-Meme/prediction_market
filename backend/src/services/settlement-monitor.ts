@@ -10,7 +10,7 @@ import { config, getDeployerKeypair, getDootOracleAddress, getRegistryAddress } 
 import { redis } from './redis-client.js';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import { PredictionMarket, MarketRegistry, MARKET_STATUS } from '../../contracts/build/src/index.js';
+import { PredictionMarket, MarketRegistry, MARKET_STATUS } from '../../../contracts/build/src/index.js';
 
 let networkInitialized = false;
 
@@ -28,7 +28,7 @@ async function getDootCommitment(): Promise<string | null> {
   try {
     const dootAddress = getDootOracleAddress();
     // Minimal contract instance just to read state
-    const { Doot } = await import('../../contracts/build/src/utils/DootOracle.js');
+    const { Doot } = await import('../../../contracts/build/src/utils/DootOracle.js');
     const doot = new Doot(dootAddress);
     const c = await doot.offchainStateCommitments.fetch();
     return c?.toString() ?? null;

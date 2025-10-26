@@ -38,12 +38,10 @@ export const SETTLEMENT_REWARD = UInt64.from(9 * LAMPORTS_PER_MINA); // 9 MINA i
 
 /**
  * INITIAL_LIQUIDITY: Initial liquidity split between YES/NO pools
- * From the 10 MINA deposit, 5 MINA goes to each pool
- * This provides initial liquidity for the AMM
+ * V1 MVP: 5 MINA per pool to reduce early bettor variance
+ * This provides healthier initial liquidity and fairer early pricing
  */
-// For MVP per idea.md: 1 MINA is split equally between YES/NO pools
-// 0.5 MINA each
-export const INITIAL_POOL_AMOUNT = UInt64.from(0.5 * LAMPORTS_PER_MINA); // 0.5 MINA per pool
+export const INITIAL_POOL_AMOUNT = UInt64.from(5 * LAMPORTS_PER_MINA); // 5 MINA per pool
 
 /**
  * MARKET_LOCKOUT_PERIOD: Time before market end when betting is disabled
@@ -124,9 +122,37 @@ export const MINIMUM_BET = UInt64.from(1); // 1 nanomina
 
 /**
  * TIME_CONSTRAINTS: Min/max market duration
+ * V1 MVP: Support 1-30 day markets with normalized economics
  * - Minimum: 1 day (86400 seconds)
- * - Maximum: 7 days (604800 seconds)
+ * - Maximum: 30 days (2592000 seconds)
  */
 // Durations in milliseconds
 export const MIN_MARKET_DURATION_MS = UInt64.from(24 * 60 * 60 * 1000);   // 1 day
-export const MAX_MARKET_DURATION_MS = UInt64.from(7 * 24 * 60 * 60 * 1000);  // 7 days
+export const MAX_MARKET_DURATION_MS = UInt64.from(30 * 24 * 60 * 60 * 1000);  // 30 days
+
+/**
+ * V1 FEE STRUCTURE:
+ * - Base fee: 0.2% on every bet (bet-time, not claim-time)
+ * - Late fee: 0-20% based on time remaining + pool imbalance
+ * - Fee distribution: 50% treasury, 50% burn
+ */
+export const BASE_FEE_BPS = UInt64.from(20); // 0.2% (20 basis points)
+export const MAX_LATE_FEE_BPS = UInt64.from(2000); // 20% max late fee
+
+/**
+ * SWITCH POSITION HAIRCUT:
+ * - Early (τ ≥ 0.50): 15%
+ * - Late (τ < 0.50): 25%
+ * - Distribution: 50% treasury, 50% burn
+ */
+export const EARLY_HAIRCUT_BPS = UInt64.from(1500); // 15%
+export const LATE_HAIRCUT_BPS = UInt64.from(2500); // 25%
+
+/**
+ * V1 FEE DISTRIBUTION (simplified from V1):
+ * - 50% to treasury (protocol operations)
+ * - 50% to burn address (supply reduction)
+ * Note: Creator fee removed in V1 (protocol-operated markets only)
+ */
+export const TREASURY_FEE_SHARE = Field(50); // 50%
+export const BURN_FEE_SHARE_V1 = Field(50); // 50%

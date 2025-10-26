@@ -14,6 +14,7 @@ import { startInitMonitor } from './services/init-monitor.js';
 import { startPoolSync } from './services/pool-sync.js';
 import { startStatusMonitor } from './services/status-monitor.js';
 import { initPinata } from './services/pinata-client.js';
+import { startOffchainSettler } from './services/offchain-settler.js';
 
 const app = express();
 
@@ -121,6 +122,14 @@ async function start() {
     console.log(' Settlement monitor started (Actions API)');
   } catch (e) {
     console.warn('  Settlement monitor not started:', (e as any)?.message || e);
+  }
+
+  // Start offchain settler (periodic OffchainState.settle)
+  try {
+    startOffchainSettler(120_000); // every 120 seconds
+    console.log(' Offchain settler started (periodic OffchainState settlement)');
+  } catch (e) {
+    console.warn('  Offchain settler not started:', (e as any)?.message || e);
   }
 }
 

@@ -50,11 +50,11 @@ export async function unpinFromIPFS(cid) {
                 Authorization: `Bearer ${pinataConfig.jwt}`,
             },
         });
-        console.log(`   ✅ Unpinned old CID: ${cid}`);
+        console.log(`    Unpinned old CID: ${cid}`);
     }
     catch (error) {
         // Don't throw error on unpin failure - it's not critical
-        console.warn(`   ⚠️  Failed to unpin ${cid}:`, error.message);
+        console.warn(`     Failed to unpin ${cid}:`, error.message);
     }
 }
 /**
@@ -74,10 +74,10 @@ export async function updateGlobalMarketsIPFS(markets, oldCID) {
         updatedAt: new Date().toISOString(),
         totalMarkets: markets.length,
     };
-    console.log(`\n📦 Pinning ${markets.length} markets to IPFS...`);
+    console.log(`\n Pinning ${markets.length} markets to IPFS...`);
     // Pin new data
     const newCID = await pinJSONToIPFS(globalMarketsData, 'global-markets.json');
-    console.log(`   ✅ Pinned new CID: ${newCID}`);
+    console.log(`    Pinned new CID: ${newCID}`);
     // Unpin old data if exists
     if (oldCID) {
         await unpinFromIPFS(oldCID);

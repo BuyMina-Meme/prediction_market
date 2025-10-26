@@ -89,7 +89,21 @@ router.get('/:id', async (req, res) => {
 
 /**
  * POST /api/markets
- * Create new market
+ * V1: Create new protocol-operated market (admin-only)
+ *
+ * Changes from V0:
+ * - No creator parameter required (protocol-operated)
+ * - Supports 1-30 day markets (not 1-7 days)
+ * - Market is ACTIVE immediately (no PENDING_INIT)
+ *
+ * Request body:
+ * {
+ *   assetIndex: number,      // 0-9
+ *   priceThreshold: string,  // In Doot format (price * 10^10)
+ *   endTimestamp: number     // Unix milliseconds (1-30 days from now)
+ * }
+ *
+ * TODO: Add authentication middleware to restrict to protocol admins only
  */
 router.post('/', async (req, res) => {
   try {
@@ -104,7 +118,7 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Deploy market
+    // Deploy market (protocol-operated)
     const result = await deployMarket(request);
 
     if (result.success) {

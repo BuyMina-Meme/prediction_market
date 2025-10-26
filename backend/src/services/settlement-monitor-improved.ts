@@ -11,7 +11,7 @@ import { redis } from './redis-client.js';
 import { detectDootSettlementAfterTime, waitForDootSettlement, DootSettlement } from './doot-settlement-detector.js';
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore
-import { PredictionMarket, MarketRegistry, MARKET_STATUS } from '../../contracts/build/src/index.js';
+import { PredictionMarket, MarketRegistry, MARKET_STATUS } from '../../../contracts/build/src/index.js';
 
 let networkInitialized = false;
 
