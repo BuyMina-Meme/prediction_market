@@ -17,6 +17,7 @@ import {
   PublicKey,
   AccountUpdate,
   UInt64,
+  Bool,
   Field,
 } from 'o1js';
 import { PredictionMarket, predictionMarketOffchainState, MarketConfig } from './PredictionMarket.js';
@@ -50,12 +51,13 @@ describe('PredictionMarket V1 Economics', () => {
   let dootKey: PrivateKey;
   let doot: MockDoot;
   let Local: any;
+  let marketEndTime: UInt64; // Shared variable for consistent timestamps
 
   before(async () => {
     console.log('Setting up V1 economics test environment...');
 
     // Setup local blockchain
-    Local = Mina.LocalBlockchain({ proofsEnabled: false });
+    Local = await Mina.LocalBlockchain({ proofsEnabled: false });
     Mina.setActiveInstance(Local);
 
     // Get test accounts
@@ -119,10 +121,10 @@ describe('PredictionMarket V1 Economics', () => {
       // Initialize: Will ETH cross $3500 in 7 days?
       const assetIdx = ASSET_INDEX.ETHEREUM;
       const threshold = Field(3500).mul(MULTIPLICATION_FACTOR);
-      const endTime = UInt64.from(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      marketEndTime = UInt64.from(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
       const initTx = await Mina.transaction(creator, async () => {
-        await market.initialize(assetIdx, threshold, endTime, creator, treasury, burn);
+        await market.initialize(assetIdx, threshold, marketEndTime, creator, treasury, burn);
       });
       await initTx.prove();
       await initTx.sign([creator.key]).send();
@@ -160,9 +162,10 @@ describe('PredictionMarket V1 Economics', () => {
 
       // Verify pool accounting
       const yesPool = await market.yesPool.fetch();
-      const expectedBaseFee = (10n * LAMPORTS_PER_MINA * 20n) / 10000n; // 0.2% = 0.02 MINA
-      const expectedNet = 10n * LAMPORTS_PER_MINA - expectedBaseFee; // 9.98 MINA
-      const expectedPool = 5n * LAMPORTS_PER_MINA + expectedNet; // 5 + 9.98 = 14.98 MINA
+      const LAMPORTS = BigInt(LAMPORTS_PER_MINA);
+      const expectedBaseFee = (10n * LAMPORTS * 20n) / 10000n; // 0.2% = 0.02 MINA
+      const expectedNet = 10n * LAMPORTS - expectedBaseFee; // 9.98 MINA
+      const expectedPool = 5n * LAMPORTS + expectedNet; // 5 + 9.98 = 14.98 MINA
 
       assert.strictEqual(
         yesPool?.toString(),
@@ -218,8 +221,8 @@ describe('PredictionMarket V1 Economics', () => {
       // Final net: 4.99 - 0.167 ≈ 4.823 MINA
 
       // Allow 1% tolerance for calculation precision
-      const minExpected = (4.82n * LAMPORTS_PER_MINA);
-      const maxExpected = (4.83n * LAMPORTS_PER_MINA);
+      const minExpected = BigInt(4.82 * Number(LAMPORTS_PER_MINA));
+      const maxExpected = BigInt(4.83 * Number(LAMPORTS_PER_MINA));
 
       assert.ok(
         poolIncrease >= minExpected && poolIncrease <= maxExpected,
@@ -238,14 +241,15 @@ describe('PredictionMarket V1 Economics', () => {
       const burnBefore = Mina.getBalance(burn).toBigInt();
 
       const tx = await Mina.transaction(user1, async () => {
-        await market.switchPosition(switchAmount, false); // Switch to NO
+        await market.switchPosition(switchAmount, Bool(false)); // Switch to NO
       });
       await tx.prove();
       await tx.sign([user1.key]).send();
 
       // Verify haircut (15% early)
-      const expectedHaircut = (5n * LAMPORTS_PER_MINA * 1500n) / 10000n; // 0.75 MINA
-      const expectedNet = 5n * LAMPORTS_PER_MINA - expectedHaircut; // 4.25 MINA
+      const LAMPORTS = BigInt(LAMPORTS_PER_MINA);
+      const expectedHaircut = (5n * LAMPORTS * 1500n) / 10000n; // 0.75 MINA
+      const expectedNet = 5n * LAMPORTS - expectedHaircut; // 4.25 MINA
 
       // Verify fee distribution
       const treasuryAfter = Mina.getBalance(treasury).toBigInt();
@@ -276,7 +280,7 @@ describe('PredictionMarket V1 Economics', () => {
 
       try {
         const tx = await Mina.transaction(user1, async () => {
-          await market.switchPosition(switchAmount, true); // Try to switch back to YES
+          await market.switchPosition(switchAmount, Bool(true)); // Try to switch back to YES
         });
         await tx.prove();
         await tx.sign([user1.key]).send();
@@ -297,7 +301,7 @@ describe('PredictionMarket V1 Economics', () => {
 
       try {
         const tx = await Mina.transaction(user3, async () => {
-          await market.switchPosition(switchAmount, true);
+          await market.switchPosition(switchAmount, Bool(true));
         });
         await tx.prove();
         await tx.sign([user3.key]).send();
@@ -344,8 +348,9 @@ describe('PredictionMarket V1 Economics', () => {
       const totalBetAmount = 1n + 2n + 3n; // 6 MINA total
 
       // Each bet pays 0.2% base fee
-      const totalBaseFee = (totalBetAmount * LAMPORTS_PER_MINA * 20n) / 10000n;
-      const expectedNetIncrease = totalBetAmount * LAMPORTS_PER_MINA - totalBaseFee;
+      const LAMPORTS = BigInt(LAMPORTS_PER_MINA);
+      const totalBaseFee = (totalBetAmount * LAMPORTS * 20n) / 10000n;
+      const expectedNetIncrease = totalBetAmount * LAMPORTS - totalBaseFee;
 
       // Allow small tolerance for late fees
       const actualIncrease = yesPoolAfter - yesPoolBefore;
@@ -367,7 +372,7 @@ describe('PredictionMarket V1 Economics', () => {
       const yesPool = (await market.yesPool.fetch())?.toBigInt() || 0n;
       const noPool = (await market.noPool.fetch())?.toBigInt() || 0n;
 
-      const poolRatio = Number(Math.min(yesPool, noPool)) / Number(Math.max(yesPool, noPool));
+      const poolRatio = Number(yesPool < noPool ? yesPool : noPool) / Number(yesPool > noPool ? yesPool : noPool);
       const imbalance = 1 - poolRatio;
 
       console.log('Current pool state:');
@@ -416,9 +421,16 @@ describe('PredictionMarket V1 Economics', () => {
       await updateTx.prove();
       await updateTx.sign([deployer.key]).send();
 
-      // Settle market
+      // Advance network time past market end using dummy transactions
+      // LocalBlockchain doesn't have setTimestamp() - advance by sending empty txns
+      for (let i = 0; i < 10; i++) {
+        const dummyTx = await Mina.transaction(deployer, async () => {});
+        await dummyTx.sign([deployer.key]).send();
+      }
+
+      // Settle market (network time is now past endTime)
       const finalPrice = Field(3600).mul(MULTIPLICATION_FACTOR);
-      const settlementTimestamp = UInt64.from(Date.now() + 7 * 24 * 60 * 60 * 1000 + 1);
+      const settlementTimestamp = marketEndTime.add(UInt64.from(1)); // 1ms after end
 
       const settleTx = await Mina.transaction(deployer, async () => {
         await market.settleMarket(finalPrice, settlementTimestamp);

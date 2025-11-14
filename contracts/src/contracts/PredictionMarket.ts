@@ -237,8 +237,30 @@ export class PredictionMarket extends SmartContract {
     // 3. Total fees to distribute
     const totalFees = baseFee.add(lateFee);
 
-    // === FEE DISTRIBUTION (immediate, before pool update) ===
-    this.distributeBetFees(totalFees, config.registryAddress, config.burnAddress);
+    // === FEE SPLIT (50% treasury, 50% burn) ===
+    const treasuryShare = totalFees.div(UInt64.from(2));
+    const burnShare = totalFees.sub(treasuryShare);
+
+    // === ACCOUNTUPDATE PATTERN WITH this.send() FOR EXTERNAL TRANSFERS ===
+    // User pays into contract, contract distributes to recipients
+    const sender = this.sender.getAndRequireSignature();
+
+    // 1. USER PAYS FULL AMOUNT to contract
+    const userUpdate = AccountUpdate.create(sender);
+    userUpdate.requireSignature();
+    userUpdate.body.useFullCommitment = Bool(true);
+    userUpdate.balance.subInPlace(amount);
+
+    // 2. CONTRACT RECEIVES FULL AMOUNT
+    this.balance.addInPlace(amount);
+
+    // 3. CONTRACT SENDS FEES TO TREASURY
+    this.send({ to: config.registryAddress, amount: treasuryShare });
+
+    // 4. CONTRACT SENDS FEES TO BURN
+    this.send({ to: config.burnAddress, amount: burnShare });
+
+    // Balance proof: -amount + finalNet + treasuryShare + burnShare = 0 ✓
 
     // === SHARE ISSUANCE (1:1 with final net amount) ===
     const sharesReceived = finalNet;
@@ -248,7 +270,6 @@ export class PredictionMarket extends SmartContract {
     this.yesPool.set(newYesPool);
 
     // === USER POSITION UPDATE ===
-    const sender = this.sender.getAndRequireSignature();
     const currentPosition = await this.offchainState.fields.positions.get(sender);
     const existingPosition = currentPosition.orElse(Position.empty());
 
@@ -263,10 +284,6 @@ export class PredictionMarket extends SmartContract {
       from: currentPosition,
       to: updatedPosition,
     });
-
-    // === TRANSFER FULL AMOUNT FROM USER ===
-    const userUpdate = AccountUpdate.createSigned(sender);
-    userUpdate.send({ to: this.address, amount });
   }
 
   /**
@@ -318,8 +335,30 @@ export class PredictionMarket extends SmartContract {
     // 3. Total fees to distribute
     const totalFees = baseFee.add(lateFee);
 
-    // === FEE DISTRIBUTION (immediate, before pool update) ===
-    this.distributeBetFees(totalFees, config.registryAddress, config.burnAddress);
+    // === FEE SPLIT (50% treasury, 50% burn) ===
+    const treasuryShare = totalFees.div(UInt64.from(2));
+    const burnShare = totalFees.sub(treasuryShare);
+
+    // === ACCOUNTUPDATE PATTERN WITH this.send() FOR EXTERNAL TRANSFERS ===
+    // User pays into contract, contract distributes to recipients
+    const sender = this.sender.getAndRequireSignature();
+
+    // 1. USER PAYS FULL AMOUNT to contract
+    const userUpdate = AccountUpdate.create(sender);
+    userUpdate.requireSignature();
+    userUpdate.body.useFullCommitment = Bool(true);
+    userUpdate.balance.subInPlace(amount);
+
+    // 2. CONTRACT RECEIVES FULL AMOUNT
+    this.balance.addInPlace(amount);
+
+    // 3. CONTRACT SENDS FEES TO TREASURY
+    this.send({ to: config.registryAddress, amount: treasuryShare });
+
+    // 4. CONTRACT SENDS FEES TO BURN
+    this.send({ to: config.burnAddress, amount: burnShare });
+
+    // Balance proof: -amount + finalNet + treasuryShare + burnShare = 0 ✓
 
     // === SHARE ISSUANCE (1:1 with final net amount) ===
     const sharesReceived = finalNet;
@@ -329,7 +368,6 @@ export class PredictionMarket extends SmartContract {
     this.noPool.set(newNoPool);
 
     // === USER POSITION UPDATE ===
-    const sender = this.sender.getAndRequireSignature();
     const currentPosition = await this.offchainState.fields.positions.get(sender);
     const existingPosition = currentPosition.orElse(Position.empty());
 
@@ -344,10 +382,6 @@ export class PredictionMarket extends SmartContract {
       from: currentPosition,
       to: updatedPosition,
     });
-
-    // === TRANSFER FULL AMOUNT FROM USER ===
-    const userUpdate = AccountUpdate.createSigned(sender);
-    userUpdate.send({ to: this.address, amount });
   }
 
   /**
@@ -401,8 +435,8 @@ export class PredictionMarket extends SmartContract {
     const haircut = amount.mul(haircutBps).div(UInt64.from(10000));
     const netAfterHaircut = amount.sub(haircut);
 
-    // === FEE DISTRIBUTION (immediate) ===
-    this.distributeBetFees(haircut, config.registryAddress, config.burnAddress);
+    // Note: Haircut stays in the contract pools (implicit fee)
+    // No external fee distribution since no new money is entering
 
     // === POOL UPDATES ===
     const yesPool = this.yesPool.getAndRequireEquals();
@@ -445,7 +479,10 @@ export class PredictionMarket extends SmartContract {
       hasSwitched: Bool(true),  // Mark as switched (can't switch again)
     });
 
-    await this.offchainState.fields.positions.set(sender, updatedPosition);
+    this.offchainState.fields.positions.update(sender, {
+      from: existingPosition,
+      to: updatedPosition,
+    });
   }
 
   /**
@@ -494,10 +531,10 @@ export class PredictionMarket extends SmartContract {
     // Verify we're past end time
     const currentTime = this.network.timestamp.getAndRequireEquals();
     const endTs = this.endTime.getAndRequireEquals();
-    currentTime.assertGreaterThanOrEqual(endTs);
+    currentTime.assertGreaterThanOrEqual(endTs, 'Market has not ended yet');
 
-    // Verify settlement timestamp
-    settlementTimestamp.assertGreaterThan(endTs);
+    // Verify settlement timestamp parameter is after end time
+    settlementTimestamp.assertGreaterThanOrEqual(endTs, 'Settlement timestamp must be after market end');
 
     // Determine outcome
     const cfg2 = (await this.offchainState.fields.config.get(Field(0))).value;
@@ -667,20 +704,29 @@ export class PredictionMarket extends SmartContract {
    * - 90/10: ratio=11, fee=4.45%
    */
   private calculateImbalanceFee(yesPool: UInt64, noPool: UInt64): UInt64 {
-    // Use Field arithmetic to avoid UInt64 overflow
-    const smaller = Provable.if(yesPool.lessThan(noPool), yesPool, noPool);
-    const larger = Provable.if(yesPool.lessThan(noPool), noPool, yesPool);
+    // Calculate imbalance fee: (1 - min/max) * 500 bps
+    // For equal pools (50/50): fee = 0
+    // For unequal pools (90/10): fee approaches 500 bps (5%)
 
-    const smallerF = smaller.value;
-    const largerF = larger.value.add(Field(1)); // Avoid division by zero
+    // Use witness to compute ratio without division in circuit
+    const imbalanceBps = Provable.witness(UInt64, () => {
+      const yesBig = yesPool.toBigInt();
+      const noBig = noPool.toBigInt();
 
-    // Calculate ratio: (smaller * 100) / larger (0-100)
-    const ratioF = smallerF.mul(100).div(largerF);
-    const ratio = Provable.witness(UInt64, () => UInt64.from(ratioF.toBigInt()));
+      // Avoid division by zero
+      if (yesBig === 0n || noBig === 0n) return UInt64.from(500);
 
-    // Imbalance fee: (100 - ratio) * 5
-    const imbalanceBps = UInt64.from(100).sub(ratio).mul(UInt64.from(5));
+      // Calculate ratio (percentage of smaller to larger pool)
+      const smaller = yesBig < noBig ? yesBig : noBig;
+      const larger = yesBig > noBig ? yesBig : noBig;
+      const ratio = (smaller * 100n) / larger; // 0-100
 
+      // Imbalance fee: (100 - ratio) * 5 = 0-500 bps
+      const fee = (100n - ratio) * 5n;
+      return UInt64.from(fee > 500n ? 500n : fee);
+    });
+
+    // Return imbalance fee (0-500 bps = 0-5%)
     return imbalanceBps;
   }
 
@@ -707,30 +753,6 @@ export class PredictionMarket extends SmartContract {
     );
 
     return cappedBps;
-  }
-
-  /**
-   * V1: Distribute fees with burn address fallback
-   * 50% treasury, 50% burn
-   * If burn address send fails, sends to treasury with memo intent
-   */
-  private distributeBetFees(
-    fee: UInt64,
-    treasuryAddress: PublicKey,
-    burnAddress: PublicKey
-  ): void {
-    const treasuryShare = fee.div(UInt64.from(2)); // 50%
-    const burnShare = fee.sub(treasuryShare);      // 50% (handles rounding)
-
-    // Send to treasury (always succeeds)
-    const treasuryUpdate = AccountUpdate.create(this.address);
-    treasuryUpdate.send({ to: treasuryAddress, amount: treasuryShare });
-
-    // Send to burn address
-    // Note: In production, burn address should be pre-funded
-    // If it fails, the transaction will revert (acceptable for V1)
-    const burnUpdate = AccountUpdate.create(this.address);
-    burnUpdate.send({ to: burnAddress, amount: burnShare });
   }
 
   /**

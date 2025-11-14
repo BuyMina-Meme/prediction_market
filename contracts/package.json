@@ -18,7 +18,7 @@
     "buildw": "tsc --watch",
     "coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "format": "prettier --write --ignore-unknown **/*",
-    "test": "npm run build && find build/src -name '*.test.js' -exec node --test {} \\;",
+    "test": "npm run build && find build/src -name '*.test.js' -exec node --expose-gc --test {} \\;",
     "testw": "npm run build && find build/src -name '*.test.js' -exec node --test --watch {} \\;",
     "lint": "npx eslint src/* --fix",
     "clear-cache": "npx rimraf cache/* !cache/README.md && npx rimraf cache.json && echo \"Cache cleared successfully!\""

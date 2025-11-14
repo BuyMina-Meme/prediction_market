@@ -124,6 +124,8 @@ export class MarketRegistry extends SmartContract {
     assetIndex: Field,
     endTimestamp: Field
   ): Promise<Field> {
+    this.offchainState.setContractInstance(this);
+
     // Only owner can register markets (prevents spam)
     const owner = this.owner.getAndRequireEquals();
     const sender = this.sender.getAndRequireSignature();
@@ -166,6 +168,8 @@ export class MarketRegistry extends SmartContract {
    */
   @method.returns(MarketInfo)
   async getMarket(marketId: Field): Promise<MarketInfo> {
+    this.offchainState.setContractInstance(this);
+
     // Verify marketId is valid (< marketCount)
     const count = this.marketCount.getAndRequireEquals();
     marketId.assertLessThan(count, 'Market ID does not exist');
@@ -186,6 +190,8 @@ export class MarketRegistry extends SmartContract {
    */
   @method
   async updateMarketStatus(marketId: Field, newStatus: Field) {
+    this.offchainState.setContractInstance(this);
+
     // Only owner can update status
     const owner = this.owner.getAndRequireEquals();
     const sender = this.sender.getAndRequireSignature();
@@ -219,6 +225,7 @@ export class MarketRegistry extends SmartContract {
    */
   @method
   async settle(proof: MarketRegistryOffchainStateProof) {
+    this.offchainState.setContractInstance(this);
     await this.offchainState.settle(proof);
   }
 
