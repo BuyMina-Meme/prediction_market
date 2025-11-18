@@ -34,6 +34,16 @@ import {
   MULTIPLICATION_FACTOR,
 } from '../types/Constants.js';
 
+function fundMissingAccounts(sender: Mina.TestPublicKey, addresses: PublicKey[]) {
+  const missingCount = addresses.reduce(
+    (count, address) => count + (Mina.hasAccount(address) ? 0 : 1),
+    0
+  );
+  if (missingCount > 0) {
+    AccountUpdate.fundNewAccount(sender, missingCount);
+  }
+}
+
 describe.skip('PredictionMarket', () => {
   let deployer: Mina.TestPublicKey;
   let creator: Mina.TestPublicKey;
@@ -166,6 +176,9 @@ describe.skip('PredictionMarket', () => {
       const betAmount = UInt64.from(2 * 1_000_000_000); // 2 MINA
 
       const tx = await Mina.transaction(user1, async () => {
+        fundMissingAccounts(user1, [deployer, deployer]);
+        const payment = AccountUpdate.createSigned(user1);
+        payment.balance.subInPlace(betAmount);
         await market.buyYes(betAmount);
       });
       await tx.prove();
@@ -188,6 +201,9 @@ describe.skip('PredictionMarket', () => {
       const betAmount = UInt64.from(3 * 1_000_000_000); // 3 MINA
 
       const tx = await Mina.transaction(user2, async () => {
+        fundMissingAccounts(user2, [deployer, deployer]);
+        const payment = AccountUpdate.createSigned(user2);
+        payment.balance.subInPlace(betAmount);
         await market.buyNo(betAmount);
       });
       await tx.prove();

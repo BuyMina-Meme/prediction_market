@@ -4,6 +4,16 @@ import { dootOffchainState, TokenInformationArray } from './utils/DootOracle.js'
 import { MockDoot } from './utils/MockDoot.js';
 import { ASSET_INDEX, MULTIPLICATION_FACTOR, INITIAL_POOL_AMOUNT } from './types/Constants.js';
 
+function fundMissingAccounts(sender: Mina.TestPublicKey, addresses: PublicKey[]) {
+  const missingCount = addresses.reduce(
+    (count, address) => count + (Mina.hasAccount(address) ? 0 : 1),
+    0
+  );
+  if (missingCount > 0) {
+    AccountUpdate.fundNewAccount(sender, missingCount);
+  }
+}
+
 async function main() {
   console.log('Setting up LocalBlockchain...');
   const Local = await Mina.LocalBlockchain({ proofsEnabled: false });
@@ -67,6 +77,9 @@ async function main() {
 
   console.log('Buying YES 2 MINA...');
   tx = await Mina.transaction(user1, async () => {
+    fundMissingAccounts(user1, [deployer, deployer]);
+    const payment = AccountUpdate.createSigned(user1);
+    payment.balance.subInPlace(UInt64.from(2 * 1_000_000_000));
     await market.buyYes(UInt64.from(2 * 1_000_000_000));
   });
   await tx.prove();
@@ -74,6 +87,9 @@ async function main() {
 
   console.log('Buying NO 3 MINA...');
   tx = await Mina.transaction(user2, async () => {
+    fundMissingAccounts(user2, [deployer, deployer]);
+    const payment = AccountUpdate.createSigned(user2);
+    payment.balance.subInPlace(UInt64.from(3 * 1_000_000_000));
     await market.buyNo(UInt64.from(3 * 1_000_000_000));
   });
   await tx.prove();

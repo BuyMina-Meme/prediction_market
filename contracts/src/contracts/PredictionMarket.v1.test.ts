@@ -36,6 +36,16 @@ import {
   LAMPORTS_PER_MINA,
 } from '../types/Constants.js';
 
+function fundMissingAccounts(sender: Mina.TestPublicKey, addresses: PublicKey[]) {
+  const missingCount = addresses.reduce(
+    (count, address) => count + (Mina.hasAccount(address) ? 0 : 1),
+    0
+  );
+  if (missingCount > 0) {
+    AccountUpdate.fundNewAccount(sender, missingCount);
+  }
+}
+
 describe('PredictionMarket V1 Economics', () => {
   let deployer: Mina.TestPublicKey;
   let creator: Mina.TestPublicKey;
@@ -85,51 +95,59 @@ describe('PredictionMarket V1 Economics', () => {
     await MockDoot.compile();
 
     console.log('✓ Compilation complete');
+
+    // Ensure treasury and burn accounts exist and are funded (10 MINA each)
+    const fundingAmount = UInt64.from(10 * LAMPORTS_PER_MINA);
+    const fundRecipientsTx = await Mina.transaction(deployer, async () => {
+      const payTreasury = AccountUpdate.createSigned(deployer);
+      payTreasury.send({ to: treasury, amount: fundingAmount });
+      const payBurn = AccountUpdate.createSigned(deployer);
+      payBurn.send({ to: burn, amount: fundingAmount });
+    });
+    await fundRecipientsTx.prove();
+    await fundRecipientsTx.sign([deployer.key]).send();
+
+    // Deploy Doot oracle
+    const deployDootTx = await Mina.transaction(deployer, async () => {
+      AccountUpdate.fundNewAccount(deployer);
+      await doot.deploy();
+    });
+    await deployDootTx.prove();
+    await deployDootTx.sign([deployer.key, dootKey]).send();
+
+    // Initialize Doot oracle prices (ETH = $3000)
+    const prices = Array(10).fill(Field(0));
+    prices[2] = Field(3000).mul(MULTIPLICATION_FACTOR);
+    const priceData = new TokenInformationArray({ prices });
+
+    const initDootTx = await Mina.transaction(deployer, async () => {
+      await doot.initBase(priceData);
+    });
+    await initDootTx.prove();
+    await initDootTx.sign([deployer.key]).send();
+
+    // Deploy prediction market
+    const deployMarketTx = await Mina.transaction(deployer, async () => {
+      AccountUpdate.fundNewAccount(deployer);
+      await market.deploy();
+    });
+    await deployMarketTx.prove();
+    await deployMarketTx.sign([deployer.key, marketKey]).send();
+
+    // Initialize market (7-day duration, ETH threshold $3500)
+    const assetIdx = ASSET_INDEX.ETHEREUM;
+    const threshold = Field(3500).mul(MULTIPLICATION_FACTOR);
+    marketEndTime = UInt64.from(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    const initMarketTx = await Mina.transaction(creator, async () => {
+      await market.initialize(assetIdx, threshold, marketEndTime, creator, treasury, burn);
+    });
+    await initMarketTx.prove();
+    await initMarketTx.sign([creator.key]).send();
   });
 
-  describe('Setup: Deployment & Initialization', () => {
-    it('should deploy and initialize Doot oracle', async () => {
-      const deployTx = await Mina.transaction(deployer, async () => {
-        AccountUpdate.fundNewAccount(deployer);
-        await doot.deploy();
-      });
-      await deployTx.prove();
-      await deployTx.sign([deployer.key, dootKey]).send();
-
-      // Initialize with ETH at $3000
-      const prices = Array(10).fill(Field(0));
-      prices[2] = Field(3000).mul(MULTIPLICATION_FACTOR);
-      const priceData = new TokenInformationArray({ prices });
-
-      const initTx = await Mina.transaction(deployer, async () => {
-        await doot.initBase(priceData);
-      });
-      await initTx.prove();
-      await initTx.sign([deployer.key]).send();
-
-      console.log('✓ Doot oracle initialized');
-    });
-
-    it('should deploy and initialize market with 5 MINA pool seeds', async () => {
-      const deployTx = await Mina.transaction(deployer, async () => {
-        AccountUpdate.fundNewAccount(deployer);
-        await market.deploy();
-      });
-      await deployTx.prove();
-      await deployTx.sign([deployer.key, marketKey]).send();
-
-      // Initialize: Will ETH cross $3500 in 7 days?
-      const assetIdx = ASSET_INDEX.ETHEREUM;
-      const threshold = Field(3500).mul(MULTIPLICATION_FACTOR);
-      marketEndTime = UInt64.from(Date.now() + 7 * 24 * 60 * 60 * 1000);
-
-      const initTx = await Mina.transaction(creator, async () => {
-        await market.initialize(assetIdx, threshold, marketEndTime, creator, treasury, burn);
-      });
-      await initTx.prove();
-      await initTx.sign([creator.key]).send();
-
-      // Verify 5 MINA pool seeds
+  describe('Initial conditions', () => {
+    it('should have seeded pools after initialization', async () => {
       const yesPool = await market.yesPool.fetch();
       const noPool = await market.noPool.fetch();
 
@@ -143,8 +161,6 @@ describe('PredictionMarket V1 Economics', () => {
         INITIAL_POOL_AMOUNT.toString(),
         'NO pool should be 5 MINA'
       );
-
-      console.log('✓ Market initialized with 5 MINA in each pool');
     });
   });
 
@@ -155,6 +171,9 @@ describe('PredictionMarket V1 Economics', () => {
       const burnBefore = Mina.getBalance(burn).toBigInt();
 
       const tx = await Mina.transaction(user1, async () => {
+        fundMissingAccounts(user1, [treasury, burn]);
+        const payment = AccountUpdate.createSigned(user1);
+        payment.balance.subInPlace(betAmount);
         await market.buyYes(betAmount);
       });
       await tx.prove();
@@ -207,6 +226,9 @@ describe('PredictionMarket V1 Economics', () => {
       const noPoolBefore = (await market.noPool.fetch())?.toBigInt() || 0n;
 
       const tx = await Mina.transaction(user2, async () => {
+        fundMissingAccounts(user2, [treasury, burn]);
+        const payment = AccountUpdate.createSigned(user2);
+        payment.balance.subInPlace(betAmount);
         await market.buyNo(betAmount);
       });
       await tx.prove();
@@ -327,18 +349,27 @@ describe('PredictionMarket V1 Economics', () => {
 
       // Sequential bets from user3
       const tx1 = await Mina.transaction(user3, async () => {
+        fundMissingAccounts(user3, [treasury, burn]);
+        const payment = AccountUpdate.createSigned(user3);
+        payment.balance.subInPlace(bet1);
         await market.buyYes(bet1);
       });
       await tx1.prove();
       await tx1.sign([user3.key]).send();
 
       const tx2 = await Mina.transaction(user3, async () => {
+        fundMissingAccounts(user3, [treasury, burn]);
+        const payment = AccountUpdate.createSigned(user3);
+        payment.balance.subInPlace(bet2);
         await market.buyYes(bet2);
       });
       await tx2.prove();
       await tx2.sign([user3.key]).send();
 
       const tx3 = await Mina.transaction(user3, async () => {
+        fundMissingAccounts(user3, [treasury, burn]);
+        const payment = AccountUpdate.createSigned(user3);
+        payment.balance.subInPlace(bet3);
         await market.buyYes(bet3);
       });
       await tx3.prove();

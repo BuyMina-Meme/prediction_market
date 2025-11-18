@@ -38,6 +38,16 @@ import {
   offchainState as DootOffchainState,
 } from '../vendor/Doot.js';
 
+function fundMissingAccounts(sender: Mina.TestPublicKey, addresses: PublicKey[]) {
+  const missingCount = addresses.reduce(
+    (count, address) => count + (Mina.hasAccount(address) ? 0 : 1),
+    0
+  );
+  if (missingCount > 0) {
+    AccountUpdate.fundNewAccount(sender, missingCount);
+  }
+}
+
 describe.skip('PredictionMarket E2E with real Doot', () => {
   let deployer: Mina.TestPublicKey;
   let creator: Mina.TestPublicKey;
@@ -133,6 +143,9 @@ describe.skip('PredictionMarket E2E with real Doot', () => {
 
     // YES bet 100 MINA
     tx = await Mina.transaction(yesUser, async () => {
+      fundMissingAccounts(yesUser, [deployer, deployer]);
+      const payment = AccountUpdate.createSigned(yesUser);
+      payment.balance.subInPlace(UInt64.from(100 * 1_000_000_000));
       await market.buyYes(UInt64.from(100 * 1_000_000_000));
     });
     await tx.prove();
@@ -140,6 +153,9 @@ describe.skip('PredictionMarket E2E with real Doot', () => {
 
     // NO bet 100 MINA
     tx = await Mina.transaction(noUser, async () => {
+      fundMissingAccounts(noUser, [deployer, deployer]);
+      const payment = AccountUpdate.createSigned(noUser);
+      payment.balance.subInPlace(UInt64.from(100 * 1_000_000_000));
       await market.buyNo(UInt64.from(100 * 1_000_000_000));
     });
     await tx.prove();
@@ -210,4 +226,3 @@ describe.skip('PredictionMarket E2E with real Doot', () => {
     );
   });
 });
-

@@ -209,9 +209,15 @@ export class PredictionMarket extends SmartContract {
     // Enforce minimum bet
     amount.assertGreaterThanOrEqual(MINIMUM_BET);
 
+    const sender = this.sender.getAndRequireSignature();
+
     // Get market config for fee distribution addresses and timing
     const configOption = await this.offchainState.fields.config.get(Field(0));
     const config = configOption.value;
+    Provable.asProver(() => {
+      console.log('buyYes treasury', config.registryAddress.toBase58());
+      console.log('buyYes burn', config.burnAddress.toBase58());
+    });
 
     // Calculate time remaining for fee calculation
     const currentTime = this.network.timestamp.getAndRequireEquals();
@@ -226,6 +232,9 @@ export class PredictionMarket extends SmartContract {
     // === V1 FEE CALCULATION ===
 
     // 1. Base fee (0.2%)
+    Provable.asProver(() => {
+      console.log('buyYes amount', amount.toBigInt().toString(), 'BASE_FEE_BPS', BASE_FEE_BPS.toBigInt().toString());
+    });
     const baseFee = amount.mul(BASE_FEE_BPS).div(UInt64.from(10000));
     const netAfterBase = amount.sub(baseFee);
 
@@ -233,6 +242,9 @@ export class PredictionMarket extends SmartContract {
     const lateFeeBps = this.calculateLateFee(remaining, totalDuration, yesPool, noPool);
     const lateFee = netAfterBase.mul(lateFeeBps).div(UInt64.from(10000));
     const finalNet = netAfterBase.sub(lateFee);
+    Provable.asProver(() => {
+      console.log('buyYes lateFeeBps', lateFeeBps.toBigInt().toString());
+    });
 
     // 3. Total fees to distribute
     const totalFees = baseFee.add(lateFee);
@@ -240,27 +252,35 @@ export class PredictionMarket extends SmartContract {
     // === FEE SPLIT (50% treasury, 50% burn) ===
     const treasuryShare = totalFees.div(UInt64.from(2));
     const burnShare = totalFees.sub(treasuryShare);
+    Provable.asProver(() => {
+      console.log('buyNo totalFees', totalFees.toBigInt().toString());
+    });
+    Provable.asProver(() => {
+      console.log('buyYes totalFees', totalFees.toBigInt().toString());
+    });
 
-    // === ACCOUNTUPDATE PATTERN WITH this.send() FOR EXTERNAL TRANSFERS ===
-    // User pays into contract, contract distributes to recipients
-    const sender = this.sender.getAndRequireSignature();
-
-    // 1. USER PAYS FULL AMOUNT to contract
-    const userUpdate = AccountUpdate.create(sender);
-    userUpdate.requireSignature();
-    userUpdate.body.useFullCommitment = Bool(true);
-    userUpdate.balance.subInPlace(amount);
-
-    // 2. CONTRACT RECEIVES FULL AMOUNT
+    // === FUNDS FLOW ===
+    // Caller pays `amount` via a signed AccountUpdate before invoking this method.
+    // Credit the contract balance, then distribute fees externally.
     this.balance.addInPlace(amount);
+    this.balance.subInPlace(treasuryShare);
+    this.balance.subInPlace(burnShare);
 
-    // 3. CONTRACT SENDS FEES TO TREASURY
-    this.send({ to: config.registryAddress, amount: treasuryShare });
+    const treasuryUpdate = AccountUpdate.create(config.registryAddress);
+    treasuryUpdate.balance.addInPlace(treasuryShare);
+    Provable.asProver(() => {
+      console.log('treasury balance change', treasuryShare.toBigInt().toString());
+    });
+    this.approve(treasuryUpdate);
 
-    // 4. CONTRACT SENDS FEES TO BURN
-    this.send({ to: config.burnAddress, amount: burnShare });
+    const burnUpdate = AccountUpdate.create(config.burnAddress);
+    burnUpdate.balance.addInPlace(burnShare);
+    Provable.asProver(() => {
+      console.log('burn balance change', burnShare.toBigInt().toString());
+    });
+    this.approve(burnUpdate);
 
-    // Balance proof: -amount + finalNet + treasuryShare + burnShare = 0 ✓
+    // Balance proof: user AU (-amount) + contract AU (+amount - fees) = +finalNet
 
     // === SHARE ISSUANCE (1:1 with final net amount) ===
     const sharesReceived = finalNet;
@@ -307,9 +327,15 @@ export class PredictionMarket extends SmartContract {
     // Enforce minimum bet
     amount.assertGreaterThanOrEqual(MINIMUM_BET);
 
+    const sender = this.sender.getAndRequireSignature();
+
     // Get market config for fee distribution addresses and timing
     const configOption = await this.offchainState.fields.config.get(Field(0));
     const config = configOption.value;
+    Provable.asProver(() => {
+      console.log('buyNo treasury', config.registryAddress.toBase58());
+      console.log('buyNo burn', config.burnAddress.toBase58());
+    });
 
     // Calculate time remaining for fee calculation
     const currentTime = this.network.timestamp.getAndRequireEquals();
@@ -324,6 +350,9 @@ export class PredictionMarket extends SmartContract {
     // === V1 FEE CALCULATION ===
 
     // 1. Base fee (0.2%)
+    Provable.asProver(() => {
+      console.log('buyNo amount', amount.toBigInt().toString(), 'BASE_FEE_BPS', BASE_FEE_BPS.toBigInt().toString());
+    });
     const baseFee = amount.mul(BASE_FEE_BPS).div(UInt64.from(10000));
     const netAfterBase = amount.sub(baseFee);
 
@@ -331,6 +360,9 @@ export class PredictionMarket extends SmartContract {
     const lateFeeBps = this.calculateLateFee(remaining, totalDuration, yesPool, noPool);
     const lateFee = netAfterBase.mul(lateFeeBps).div(UInt64.from(10000));
     const finalNet = netAfterBase.sub(lateFee);
+    Provable.asProver(() => {
+      console.log('buyNo lateFeeBps', lateFeeBps.toBigInt().toString());
+    });
 
     // 3. Total fees to distribute
     const totalFees = baseFee.add(lateFee);
@@ -339,26 +371,26 @@ export class PredictionMarket extends SmartContract {
     const treasuryShare = totalFees.div(UInt64.from(2));
     const burnShare = totalFees.sub(treasuryShare);
 
-    // === ACCOUNTUPDATE PATTERN WITH this.send() FOR EXTERNAL TRANSFERS ===
-    // User pays into contract, contract distributes to recipients
-    const sender = this.sender.getAndRequireSignature();
-
-    // 1. USER PAYS FULL AMOUNT to contract
-    const userUpdate = AccountUpdate.create(sender);
-    userUpdate.requireSignature();
-    userUpdate.body.useFullCommitment = Bool(true);
-    userUpdate.balance.subInPlace(amount);
-
-    // 2. CONTRACT RECEIVES FULL AMOUNT
+    // === FUNDS FLOW ===
     this.balance.addInPlace(amount);
+    this.balance.subInPlace(treasuryShare);
+    this.balance.subInPlace(burnShare);
 
-    // 3. CONTRACT SENDS FEES TO TREASURY
-    this.send({ to: config.registryAddress, amount: treasuryShare });
+    const treasuryUpdate = AccountUpdate.create(config.registryAddress);
+    treasuryUpdate.balance.addInPlace(treasuryShare);
+    Provable.asProver(() => {
+      console.log('treasury balance change (buyNo)', treasuryShare.toBigInt().toString());
+    });
+    this.approve(treasuryUpdate);
 
-    // 4. CONTRACT SENDS FEES TO BURN
-    this.send({ to: config.burnAddress, amount: burnShare });
+    const burnUpdate = AccountUpdate.create(config.burnAddress);
+    burnUpdate.balance.addInPlace(burnShare);
+    Provable.asProver(() => {
+      console.log('burn balance change (buyNo)', burnShare.toBigInt().toString());
+    });
+    this.approve(burnUpdate);
 
-    // Balance proof: -amount + finalNet + treasuryShare + burnShare = 0 ✓
+    // Balance proof identical to buyYes
 
     // === SHARE ISSUANCE (1:1 with final net amount) ===
     const sharesReceived = finalNet;
