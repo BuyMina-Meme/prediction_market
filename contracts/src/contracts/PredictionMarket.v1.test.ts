@@ -46,6 +46,19 @@ function fundMissingAccounts(sender: Mina.TestPublicKey, addresses: PublicKey[])
   }
 }
 
+// Helper to settle offchain state after modifications
+async function settleOffchainState(
+  market: PredictionMarket,
+  feePayer: Mina.TestPublicKey
+) {
+  const proof = await market.offchainState.createSettlementProof();
+  const tx = await Mina.transaction(feePayer, async () => {
+    await market.settle(proof);
+  });
+  await tx.prove();
+  await tx.sign([feePayer.key]).send();
+}
+
 describe('PredictionMarket V1 Economics', () => {
   let deployer: Mina.TestPublicKey;
   let creator: Mina.TestPublicKey;
@@ -63,6 +76,36 @@ describe('PredictionMarket V1 Economics', () => {
   let Local: any;
   let marketEndTime: UInt64; // Shared variable for consistent timestamps
 
+  const formatBalance = (
+    label: string,
+    actor?: Mina.TestPublicKey | PublicKey
+  ): string => {
+    if (!actor) return `${label}: n/a`;
+    try {
+      const value = Mina.getBalance(actor as any).toBigInt();
+      return `${label}: ${value.toString()}`;
+    } catch (error) {
+      return `${label}: unavailable (${(error as Error).message})`;
+    }
+  };
+
+  const logBalanceSnapshot = (label: string) => {
+    if (!deployer || !creator || !user1 || !treasury || !burn) {
+      console.log(`[Balance Snapshot:${label}] Skipped (accounts not yet ready)`);
+      return;
+    }
+    const snapshot = [
+      formatBalance('deployer', deployer),
+      formatBalance('creator', creator),
+      formatBalance('user1', user1),
+      formatBalance('user2', user2),
+      formatBalance('treasury', treasury),
+      formatBalance('burn', burn),
+      formatBalance('market', marketAddress),
+    ].join(' | ');
+    console.log(`[Balance Snapshot:${label}] ${snapshot}`);
+  };
+
   before(async () => {
     console.log('Setting up V1 economics test environment...');
 
@@ -72,6 +115,14 @@ describe('PredictionMarket V1 Economics', () => {
 
     // Get test accounts
     [deployer, creator, user1, user2, user3, treasury, burn] = Local.testAccounts;
+
+    // Verify burn and treasury are different accounts
+    assert.notStrictEqual(
+      treasury.toBase58(),
+      burn.toBase58(),
+      'Treasury and burn must be different accounts'
+    );
+    logBalanceSnapshot('post account allocation');
 
     // Generate keypairs for contracts
     marketKey = PrivateKey.random();
@@ -106,6 +157,7 @@ describe('PredictionMarket V1 Economics', () => {
     });
     await fundRecipientsTx.prove();
     await fundRecipientsTx.sign([deployer.key]).send();
+    logBalanceSnapshot('after treasury/burn funding');
 
     // Deploy Doot oracle
     const deployDootTx = await Mina.transaction(deployer, async () => {
@@ -133,6 +185,7 @@ describe('PredictionMarket V1 Economics', () => {
     });
     await deployMarketTx.prove();
     await deployMarketTx.sign([deployer.key, marketKey]).send();
+    logBalanceSnapshot('after market deploy');
 
     // Initialize market (7-day duration, ETH threshold $3500)
     const assetIdx = ASSET_INDEX.ETHEREUM;
@@ -140,10 +193,14 @@ describe('PredictionMarket V1 Economics', () => {
     marketEndTime = UInt64.from(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     const initMarketTx = await Mina.transaction(creator, async () => {
-      await market.initialize(assetIdx, threshold, marketEndTime, creator, treasury, burn);
+      await market.initialize(assetIdx, threshold, marketEndTime, creator, burn, treasury);
     });
     await initMarketTx.prove();
     await initMarketTx.sign([creator.key]).send();
+
+    // Settle offchain state to commit config (required for subsequent reads)
+    await settleOffchainState(market, deployer);
+    logBalanceSnapshot('after market initialization');
   });
 
   describe('Initial conditions', () => {
@@ -169,6 +226,7 @@ describe('PredictionMarket V1 Economics', () => {
       const betAmount = UInt64.from(10 * LAMPORTS_PER_MINA); // 10 MINA
       const treasuryBefore = Mina.getBalance(treasury).toBigInt();
       const burnBefore = Mina.getBalance(burn).toBigInt();
+      logBalanceSnapshot('base-fee test before tx');
 
       const tx = await Mina.transaction(user1, async () => {
         fundMissingAccounts(user1, [treasury, burn]);
@@ -178,6 +236,7 @@ describe('PredictionMarket V1 Economics', () => {
       });
       await tx.prove();
       await tx.sign([user1.key]).send();
+      logBalanceSnapshot('base-fee test after tx');
 
       // Verify pool accounting
       const yesPool = await market.yesPool.fetch();
@@ -213,6 +272,9 @@ describe('PredictionMarket V1 Economics', () => {
       );
 
       console.log('✓ Early bet: 0.2% base fee charged and distributed');
+
+      // Settle to commit position updates
+      await settleOffchainState(market, deployer);
     });
 
     it('should charge late fee when market is lopsided (pool ratio < 1)', async () => {
@@ -252,6 +314,9 @@ describe('PredictionMarket V1 Economics', () => {
       );
 
       console.log('✓ Lopsided market: Late fee (imbalance) charged correctly');
+
+      // Settle to commit position updates for subsequent tests
+      await settleOffchainState(market, deployer);
     });
   });
 
@@ -394,6 +459,9 @@ describe('PredictionMarket V1 Economics', () => {
       );
 
       console.log('✓ Rapid sequential bets: Fee accumulation working');
+
+      // Settle positions for subsequent tests
+      await settleOffchainState(market, deployer);
     });
 
     it('should document lopsided market vulnerability (known limitation)', async () => {

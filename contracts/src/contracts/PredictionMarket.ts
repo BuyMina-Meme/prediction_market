@@ -261,24 +261,10 @@ export class PredictionMarket extends SmartContract {
 
     // === FUNDS FLOW ===
     // Caller pays `amount` via a signed AccountUpdate before invoking this method.
-    // Credit the contract balance, then distribute fees externally.
+    // Credit the contract balance, then send fees to treasury and burn.
     this.balance.addInPlace(amount);
-    this.balance.subInPlace(treasuryShare);
-    this.balance.subInPlace(burnShare);
-
-    const treasuryUpdate = AccountUpdate.create(config.registryAddress);
-    treasuryUpdate.balance.addInPlace(treasuryShare);
-    Provable.asProver(() => {
-      console.log('treasury balance change', treasuryShare.toBigInt().toString());
-    });
-    this.approve(treasuryUpdate);
-
-    const burnUpdate = AccountUpdate.create(config.burnAddress);
-    burnUpdate.balance.addInPlace(burnShare);
-    Provable.asProver(() => {
-      console.log('burn balance change', burnShare.toBigInt().toString());
-    });
-    this.approve(burnUpdate);
+    this.send({ to: config.registryAddress, amount: treasuryShare });
+    this.send({ to: config.burnAddress, amount: burnShare });
 
     // Balance proof: user AU (-amount) + contract AU (+amount - fees) = +finalNet
 
@@ -372,23 +358,11 @@ export class PredictionMarket extends SmartContract {
     const burnShare = totalFees.sub(treasuryShare);
 
     // === FUNDS FLOW ===
+    // Caller pays `amount` via a signed AccountUpdate before invoking this method.
+    // Credit the contract balance, then send fees to treasury and burn.
     this.balance.addInPlace(amount);
-    this.balance.subInPlace(treasuryShare);
-    this.balance.subInPlace(burnShare);
-
-    const treasuryUpdate = AccountUpdate.create(config.registryAddress);
-    treasuryUpdate.balance.addInPlace(treasuryShare);
-    Provable.asProver(() => {
-      console.log('treasury balance change (buyNo)', treasuryShare.toBigInt().toString());
-    });
-    this.approve(treasuryUpdate);
-
-    const burnUpdate = AccountUpdate.create(config.burnAddress);
-    burnUpdate.balance.addInPlace(burnShare);
-    Provable.asProver(() => {
-      console.log('burn balance change (buyNo)', burnShare.toBigInt().toString());
-    });
-    this.approve(burnUpdate);
+    this.send({ to: config.registryAddress, amount: treasuryShare });
+    this.send({ to: config.burnAddress, amount: burnShare });
 
     // Balance proof identical to buyYes
 
@@ -546,8 +520,7 @@ export class PredictionMarket extends SmartContract {
 
     // Reward caller (9 MINA per spec)
     const caller = this.sender.getAndRequireSignature();
-    const contractUpdate = AccountUpdate.create(this.address);
-    contractUpdate.send({ to: caller, amount: SETTLEMENT_REWARD });
+    this.send({ to: caller, amount: SETTLEMENT_REWARD });
   }
 
   /**
@@ -578,8 +551,7 @@ export class PredictionMarket extends SmartContract {
 
     // Reward caller (9 MINA per spec)
     const caller = this.sender.getAndRequireSignature();
-    const contractUpdate = AccountUpdate.create(this.address);
-    contractUpdate.send({ to: caller, amount: SETTLEMENT_REWARD });
+    this.send({ to: caller, amount: SETTLEMENT_REWARD });
   }
 
   /**
@@ -640,25 +612,15 @@ export class PredictionMarket extends SmartContract {
       to: updatedPosition,
     });
 
-    // Transfer payout to user
-    const contractUpdate = AccountUpdate.create(this.address);
-    contractUpdate.send({ to: sender, amount: netPayout });
-
     // Get config for fee distribution addresses
     const configOption2 = await this.offchainState.fields.config.get(Field(0));
     const config = configOption2.value;
 
-    // Pay creator share (20% of fees)
-    const creatorUpdate = AccountUpdate.create(this.address);
-    creatorUpdate.send({ to: config.creator, amount: feeSplit.creator });
-
-    // Pay burn share (40% of fees) to burn address
-    const burnUpdate = AccountUpdate.create(this.address);
-    burnUpdate.send({ to: config.burnAddress, amount: feeSplit.burn });
-
-    // Pay registry treasury share (40% of fees) to MarketRegistry
-    const registryUpdate = AccountUpdate.create(this.address);
-    registryUpdate.send({ to: config.registryAddress, amount: feeSplit.platform });
+    // Transfer payout to user and distribute fees
+    this.send({ to: sender, amount: netPayout });
+    this.send({ to: config.creator, amount: feeSplit.creator });
+    this.send({ to: config.burnAddress, amount: feeSplit.burn });
+    this.send({ to: config.registryAddress, amount: feeSplit.platform });
   }
 
   /**
