@@ -18,7 +18,7 @@
     "buildw": "tsc --watch",
     "coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "format": "prettier --write --ignore-unknown **/*",
-    "test": "npm run build && find build/src -name '*.test.js' -exec node --expose-gc --test {} \\;",
+    "test": "npm run build && find build/src -name '*.test.js' -exec node --test {} \\;",
     "testw": "npm run build && find build/src -name '*.test.js' -exec node --test --watch {} \\;",
     "lint": "npx eslint src/* --fix",
     "clear-cache": "npx rimraf cache/* !cache/README.md && npx rimraf cache.json && echo \"Cache cleared successfully!\""
@@ -40,8 +40,5 @@
   },
   "engines": {
     "node": ">=18.14.0"
-  },
-  "dependencies": {
-    "o1js-pack": "^0.8.0"
   }
 }

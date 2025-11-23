@@ -1,29 +1,23 @@
-# Prediction Market Contracts
+# Mina zkApp: Contracts
 
-TypeScript zkApps (o1js v2) for the prediction market.
+This template uses TypeScript.
 
-## Prerequisites
+## How to build
 
-- Node.js ≥ 18.14.0
-- o1js v2 (peer dependency installed at workspace root)
-
-## Build
-
-```bash
-npm install
+```sh
 npm run build
 ```
 
-## Test
+## How to run tests
 
-```bash
-npm run test      # one-shot
-npm run testw     # watch mode
+```sh
+npm run test
+npm run testw # watch mode
 ```
 
-## Coverage
+## How to run coverage
 
-```bash
+```sh
 npm run coverage
 ```
 
